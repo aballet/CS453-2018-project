@@ -31,7 +31,9 @@
 
 /** Your lock type.
 **/
-struct lock_t {};
+struct lock_t {
+  _Atomic bool flag;
+};
 
 bool lock_init(struct lock_t*);
 void lock_cleanup(struct lock_t*);

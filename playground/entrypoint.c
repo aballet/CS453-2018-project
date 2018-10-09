@@ -3,6 +3,7 @@
 // ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
 
 // External headers
+#include <stdlib.h>
 #include <stdatomic.h>
 #include <stdio.h>
 
@@ -17,7 +18,7 @@
  * @return Whether initialization is a success
 **/
 bool lock_init(struct lock_t* lock __attribute__((unused))) {
-    // Code here
+    lock->flag = false;
     return true;
 }
 
@@ -25,21 +26,28 @@ bool lock_init(struct lock_t* lock __attribute__((unused))) {
  * @param lock Initialized lock structure
 **/
 void lock_cleanup(struct lock_t* lock __attribute__((unused))) {
-    // Code here
+    lock->flag = false;
 }
 
 /** [thread-safe] Acquire the given lock, wait if it has already been acquired.
  * @param lock Initialized lock structure
 **/
 void lock_acquire(struct lock_t* lock __attribute__((unused))) {
-    // Code here
+    bool finished = false;
+    while(!finished) {
+      bool b = false;
+      if (atomic_compare_exchange_weak(&(lock->flag), &b, true)) {
+        finished = true;
+      }
+    };
 }
 
 /** [thread-safe] Release the given lock.
  * @param lock Initialized lock structure
 **/
 void lock_release(struct lock_t* lock __attribute__((unused))) {
-    // Code here
+    bool b = true;
+    atomic_compare_exchange_weak(&(lock->flag), &b, false);
 }
 
 // ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
