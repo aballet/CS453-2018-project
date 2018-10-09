@@ -18,12 +18,12 @@
  *
  * @section DESCRIPTION
  *
- * Interface for the entry point.
+ * Interface for the "entry point" source file.
 **/
 
 #pragma once
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 /** Your lock class.
 **/
@@ -35,18 +35,18 @@ public:
     void acquire();
     void release();
 public:
-    /** Forward call to 'acquire', for this class to satisfy 'BasicLockable' concept.
+    /** Forwards call to 'acquire', for this class to satisfy 'BasicLockable' concept.
     **/
     void lock() {
         acquire();
     }
-    /** Forward call to 'release', for this class to satisfy 'BasicLockable' concept.
+    /** Forwards call to 'release', for this class to satisfy 'BasicLockable' concept.
     **/
     void unlock() {
         release();
     }
 };
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 void entry_point(size_t, size_t, Lock&);

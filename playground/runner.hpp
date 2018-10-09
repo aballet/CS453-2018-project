@@ -1,5 +1,5 @@
 /**
- * @file   runner.h
+ * @file   runner.hpp
  * @author Sébastien Rouault <sebastien.rouault@epfl.ch>
  *
  * @section LICENSE
@@ -23,12 +23,6 @@
 
 #pragma once
 
-// External headers
-#include <stddef.h>
+// -------------------------------------------------------------------------- //
 
-// Internal headers
-#include "config.h"
-
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
-
-void shared_access(void);
+void shared_access();

@@ -27,6 +27,7 @@
 // External headers
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <iostream>
 #include <random>
 #include <thread>
@@ -48,7 +49,7 @@ extern "C" {
 }
 }
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 /** Define a proposition as likely true.
  * @param prop Proposition
@@ -74,7 +75,7 @@ extern "C" {
         (prop)
 #endif
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 namespace Exception {
 
@@ -105,12 +106,14 @@ EXCEPTION(Any, ::std::exception, "exception");
     EXCEPTION(Transaction, Any, "transaction manager exception");
         EXCEPTION(TransactionCreate, Module, "shared memory region creation failed");
         EXCEPTION(TransactionBegin, Module, "transaction begin failed");
+        EXCEPTION(TransactionAlloc, Module, "memory allocation failed (insufficient memory)");
+    EXCEPTION(TooSlow, Any, "non-reference module takes too long to process the transactions");
 
 #undef EXCEPTION
 
 }
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 /** Transactional library class.
 **/
@@ -128,6 +131,8 @@ private:
     using FnEnd     = decltype(&TM::tm_end);
     using FnRead    = decltype(&TM::tm_read);
     using FnWrite   = decltype(&TM::tm_write);
+    using FnAlloc   = decltype(&TM::tm_alloc);
+    using FnFree    = decltype(&TM::tm_free);
 private:
     void*     module;     // Module opaque handler
     FnCreate  tm_create;  // Module's initialization function
@@ -139,6 +144,8 @@ private:
     FnEnd     tm_end;     // Module's transaction end function
     FnRead    tm_read;    // Module's shared memory read function
     FnWrite   tm_write;   // Module's shared memory write function
+    FnAlloc   tm_alloc;   // Module's shared memory allocation function
+    FnFree    tm_free;    // Module's shared memory freeing function
 private:
     /** Solve a symbol from its name, and bind it to the given function.
      * @param name Name of the symbol to resolve
@@ -160,8 +167,6 @@ public:
     TransactionalLibrary& operator=(TransactionalLibrary const&) = delete;
     /** Loader constructor.
      * @param path  Path to the library to load
-     * @param size  Size of the shared memory region to allocate
-     * @param align Shared memory region required alignment
     **/
     TransactionalLibrary(char const* path) {
         { // Resolve path and load module
@@ -182,6 +187,8 @@ public:
             solve("tm_end", tm_end);
             solve("tm_read", tm_read);
             solve("tm_write", tm_write);
+            solve("tm_alloc", tm_alloc);
+            solve("tm_free", tm_free);
         }
     }
     /** Unloader destructor.
@@ -212,12 +219,12 @@ public:
     TransactionalMemory& operator=(TransactionalMemory const&) = delete;
     /** Bind constructor.
      * @param library Transactional library to use
-     * @param size    Size of the shared memory region to allocate
      * @param align   Shared memory region required alignment
+     * @param size    Size of the shared memory region to allocate
     **/
-    TransactionalMemory(TransactionalLibrary const& library, size_t size, size_t align): tl{library} {
+    TransactionalMemory(TransactionalLibrary const& library, size_t align, size_t size): tl{library} {
         { // Initialize shared memory region
-            shared = tl.tm_create(size, align >= sizeof(void*) ? align : sizeof(void*));
+            shared = tl.tm_create(size, align);
             if (unlikely(shared == TM::invalid_shared))
                 throw Exception::TransactionCreate{};
             start_addr = reinterpret_cast<uintptr_t>(tl.tm_start(shared));
@@ -273,9 +280,29 @@ public:
     auto write(TX tx, void const* source, size_t size, void* target) noexcept {
         return tl.tm_write(shared, tx, source, size, target);
     }
+    /** [thread-safe] Memory allocation operation in the given transaction, throw if no memory available.
+     * @param tx     Transaction to use
+     * @param size   Size to allocate
+     * @param target Target start address
+     * @return Whether the whole transaction can continue
+    **/
+    auto alloc(TX tx, size_t size, void** target) {
+        auto status = tl.tm_alloc(shared, tx, size, target);
+        if (unlikely(status == TM::nomem_alloc))
+            throw Exception::TransactionAlloc{};
+        return status == TM::success_alloc;
+    }
+    /** [thread-safe] Memory freeing operation in the given transaction.
+     * @param tx     Transaction to use
+     * @param target Target start address
+     * @return Whether the whole transaction can continue
+    **/
+    auto free(TX tx, void* target) noexcept {
+        return tl.tm_free(shared, tx, target);
+    }
 };
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 /** Seed type.
 **/
@@ -318,10 +345,15 @@ public:
     void start() noexcept {
         local = convert(::clock_gettime);
     }
+    /** Measure a time segment.
+    **/
+    auto delta() noexcept {
+        return convert(::clock_gettime) - local;
+    }
     /** Stop measuring a time segment, and add it to the total.
     **/
     void stop() noexcept {
-        total += convert(::clock_gettime) - local;
+        total += delta();
     }
     /** Reset the total tick counter.
     **/
@@ -356,10 +388,10 @@ public:
     Workload& operator=(Workload const&) = delete;
     /** Transaction library constructor.
      * @param library Transactional library to use
-     * @param size    Size of the shared memory region to allocate
      * @param align   Shared memory region required alignment
+     * @param size    Size of the shared memory region to allocate
     **/
-    Workload(TransactionalLibrary const& library, size_t size, size_t align): tl{library}, tm{tl, size, align}, sum{0} {
+    Workload(TransactionalLibrary const& library, size_t align, size_t size): tl{library}, tm{tl, align, size}, sum{0} {
     }
     /** Virtual destructor.
     **/
@@ -417,7 +449,7 @@ public:
      * @param init_balance Initial account balance
      * @param prob_long    Probability of running a long, read-only control transaction
     **/
-    Bank(TransactionalLibrary const& library, size_t nbaccounts, size_t nbtxperwrk, int init_balance, float prob_long): Workload{library, sizeof(int) * nbaccounts, alignof(int)}, nbaccounts{nbaccounts}, nbtxperwrk{nbtxperwrk}, init_balance{init_balance}, prob_long{prob_long} {
+    Bank(TransactionalLibrary const& library, size_t nbaccounts, size_t nbtxperwrk, int init_balance, float prob_long): Workload{library, sizeof(int), sizeof(int) * nbaccounts}, nbaccounts{nbaccounts}, nbtxperwrk{nbtxperwrk}, init_balance{init_balance}, prob_long{prob_long} {
         do {
             auto tx = tm.begin();
             auto&& init_fn = [&]() {
@@ -509,7 +541,7 @@ public:
     }
 };
 
-// ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
+// -------------------------------------------------------------------------- //
 
 /** Pause execution.
 **/
@@ -519,6 +551,12 @@ static void pause() {
 #else
     ::std::this_thread::yield();
 #endif
+}
+
+/** Pause execution for a longer time.
+**/
+static void long_pause() {
+    ::std::this_thread::sleep_for(::std::chrono::milliseconds(200));
 }
 
 /** Tailored thread synchronization class.
@@ -561,9 +599,12 @@ public:
         status.store(Status::Quit, ::std::memory_order_release);
     }
     /** Master wait for all workers to finish.
+     * @param maxtick Maximum number of ticks to wait before exiting the process on an error
      * @return Whether all workers finished on success
     **/
-    bool master_wait() noexcept {
+    bool master_wait(Chrono::Tick maxtick) {
+        Chrono chrono;
+        chrono.start();
         while (true) {
             switch (status.load(::std::memory_order_relaxed)) {
             case Status::Done:
@@ -571,7 +612,9 @@ public:
             case Status::Fail:
                 return false;
             default:
-                pause();
+                long_pause();
+                if (maxtick != Chrono::invalid_tick && chrono.delta() > maxtick)
+                    throw Exception::TooSlow{};
             }
         }
     }
@@ -618,43 +661,52 @@ public:
  * @param nbthreads Number of concurrent threads to use
  * @param nbrepeats Number of repetitions (keep the median)
  * @param seed      Seed to use
- * @return Whether no inconsistency have been *passively* detected, median execution time (in ns) (undefined if inconsistency)
+ * @param maxtick   Maximum number of ticks to wait before deeming a time-out
+ * @return Whether no inconsistency have been *passively* detected, median execution time (in ns) (undefined if inconsistency detected)
 **/
-static auto measure(Workload& workload, unsigned int const nbthreads, unsigned int const nbrepeats, Seed seed) {
+static auto measure(Workload& workload, unsigned int const nbthreads, unsigned int const nbrepeats, Seed seed, Chrono::Tick maxtick) {
     ::std::thread threads[nbthreads];
     Sync sync{nbthreads}; // "As-synchronized-as-possible" starts so that threads interfere "as-much-as-possible"
     for (unsigned int i = 0; i < nbthreads; ++i) { // Start threads
-        threads[i] = ::std::thread{[&]() {
+        threads[i] = ::std::thread{[&](unsigned int i) {
             try {
+                size_t count = 0;
                 while (true) {
                     if (!sync.worker_wait())
                         return;
-                    sync.worker_notify(workload.run(seed));
+                    sync.worker_notify(workload.run(seed + nbthreads * count + i));
+                    ++count;
                 }
             } catch (::std::exception const& err) {
                 sync.worker_notify(false); // Exception in workload, since sync.* cannot throw
                 ::std::cerr << "⎧ *** EXCEPTION - worker thread ***" << ::std::endl << "⎩ " << err.what() << ::std::endl;
                 return;
             }
-        }};
+        }, i};
     }
-    decltype(workload.get_time()) times[nbrepeats];
-    bool res = true;
-    for (unsigned int i = 0; i < nbrepeats; ++i) { // Repeat measurement
-        sync.master_notify();
-        if (!sync.master_wait()) {
-            res = false;
-            goto join;
+    try {
+        decltype(workload.get_time()) times[nbrepeats];
+        bool res = true;
+        for (unsigned int i = 0; i < nbrepeats; ++i) { // Repeat measurement
+            sync.master_notify();
+            if (!sync.master_wait(maxtick)) {
+                res = false;
+                goto join;
+            }
+            times[i] = workload.get_time();
         }
-        times[i] = workload.get_time();
+        ::std::nth_element(times, times + (nbrepeats >> 1), times + nbrepeats); // Partial-sort times around the median
+        join: {
+            sync.master_join(); // Join with threads
+            for (unsigned int i = 0; i < nbthreads; ++i)
+                threads[i].join();
+        }
+        return ::std::make_tuple(res, times[nbrepeats >> 1]);
+    } catch (...) {
+        for (unsigned int i = 0; i < nbthreads; ++i) // Detach threads to avoid termination due to attached thread going out of scope
+            threads[i].detach();
+        throw;
     }
-    ::std::nth_element(times, times + (nbrepeats >> 1), times + nbrepeats); // Partial-sort times around the median
-    join: {
-        sync.master_join(); // Join with threads
-        for (unsigned int i = 0; i < nbthreads; ++i)
-            threads[i].join();
-    }
-    return ::std::make_tuple(res, times[nbrepeats >> 1]);
 }
 
 /** Program entry point.
@@ -674,25 +726,35 @@ int main(int argc, char** argv) {
                 res = 16;
             return static_cast<size_t>(res);
         }();
-        auto const nbtxperwrk   = 10000000ul;
+        auto const nbtxperwrk   = 1000000ul;
         auto const nbaccounts   = 4 * nbworkers;
         auto const init_balance = 100;
         auto const prob_long    = 0.5f;
-        auto const nbrepeats    = 3;
+        auto const nbrepeats    = 11;
         auto const seed         = static_cast<Seed>(::std::stoul(argv[1]));
-        ::std::cout << "⎧ Number of worker threads: " << nbworkers << ::std::endl;
-        ::std::cout << "⎪ Number of TX per worker:  " << nbtxperwrk << ::std::endl;
-        ::std::cout << "⎪ Total number of accounts: " << nbaccounts << ::std::endl;
-        ::std::cout << "⎪ Initial account balance:  " << init_balance << ::std::endl;
-        ::std::cout << "⎪ Long TX probability:      " << prob_long << ::std::endl;
-        ::std::cout << "⎪ Number of repetitions:    " << nbrepeats << ::std::endl;
-        ::std::cout << "⎩ Seed value:               " << seed << ::std::endl;
+        auto const slow_factor  = 2ul;
+        ::std::cout << "⎧ #worker threads:     " << nbworkers << ::std::endl;
+        ::std::cout << "⎪ #TX per worker:      " << nbtxperwrk << ::std::endl;
+        ::std::cout << "⎪ #repetitions:        " << nbrepeats << ::std::endl;
+        ::std::cout << "⎪ Initial #accounts:   " << nbaccounts << ::std::endl;
+        ::std::cout << "⎪ Initial balance:     " << init_balance << ::std::endl;
+        ::std::cout << "⎪ Long TX probability: " << prob_long << ::std::endl;
+        ::std::cout << "⎪ Slow trigger factor: " << slow_factor << ::std::endl;
+        ::std::cout << "⎩ Seed value:          " << seed << ::std::endl;
         auto&& eval = [&](char const* path, Chrono::Tick reference) { // Library evaluation
             try {
                 ::std::cout << "⎧ Evaluating '" << path << "'" << (reference == Chrono::invalid_tick ? " (reference)" : "") << "..." << ::std::endl;
                 TransactionalLibrary tl{path};
                 Bank bank{tl, nbaccounts, nbtxperwrk, init_balance, prob_long};
-                auto res     = measure(bank, nbworkers, nbrepeats, seed);
+                auto maxtick = [](auto reference) {
+                    if (reference == Chrono::invalid_tick)
+                        return Chrono::invalid_tick;
+                    reference *= slow_factor;
+                    if (unlikely(reference == Chrono::invalid_tick)) // Bad luck...
+                        ++reference;
+                    return reference;
+                }(reference);
+                auto res     = measure(bank, nbworkers, nbrepeats, seed, maxtick);
                 auto correct = ::std::get<0>(res) && bank.check();
                 auto perf    = ::std::get<1>(res);
                 if (unlikely(!correct)) {
@@ -705,6 +767,9 @@ int main(int argc, char** argv) {
                     ::std::cout << "⎩ Average TX execution time: " << (perf / static_cast<double>(nbworkers) / static_cast<double>(nbtxperwrk)) << " ns" << ::std::endl;
                 }
                 return ::std::make_tuple(correct, perf);
+            } catch (Exception::TooSlow const& err) { // Special case since interrupting threads may lead to corrupted state
+                ::std::cerr << "⎪ *** EXCEPTION - main thread ***" << ::std::endl << "⎩ " << err.what() << ::std::endl;
+                ::std::exit(1);
             } catch (::std::exception const& err) {
                 ::std::cerr << "⎪ *** EXCEPTION - main thread ***" << ::std::endl << "⎩ " << err.what() << ::std::endl;
                 return ::std::make_tuple(false, 0.);
