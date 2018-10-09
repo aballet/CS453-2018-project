@@ -25,3 +25,7 @@
 !*.h++
 
 !*.py
+
+\.idea/
+
+cmake-build-debug/
