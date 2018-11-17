@@ -137,7 +137,7 @@ static void link_remove(struct link* link) {
 **/
 // #define USE_PTHREAD_LOCK
 // #define USE_TICKET_LOCK
-#define USE_RW_LOCK
+ #define USE_RW_LOCK
 
 /** Pause for a very short amount of time.
 **/
