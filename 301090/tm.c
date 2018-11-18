@@ -67,20 +67,6 @@
 #endif
 
 // -------------------------------------------------------------------------- //
-// Type definitions
-
-static const tx_t read_only_tx  = UINTPTR_MAX - 10;
-static const tx_t read_write_tx = UINTPTR_MAX - 11;
-
-typedef struct region {
-    void* start;
-    global_counter_t* counter;
-    pthread_rwlock_t* lock;
-    size_t size;
-    size_t align;
-} region_t;
-
-// -------------------------------------------------------------------------- //
 // Lock helper functions
 
 int init_lock(region_t* region) {
@@ -150,10 +136,18 @@ shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
         free(region);
         return invalid_shared;
     }
-    // Init lock
-    if(init_lock(region) != 0) {
+    // Init counter
+    region->counter = global_counter_create();
+    if (!region->counter) {
         free(region->start);
-        region->start = NULL;
+        free(region);
+        return invalid_shared;
+    }
+    // Init lock
+    region->lock = create_lock();
+    if (!region->lock) {
+        free(region->counter);
+        free(region->start);
         free(region);
         return invalid_shared;
     }
@@ -161,6 +155,7 @@ shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
     memset(region->start, 0, size);
     // Finish initialization and return region
     region->size = size;
+    region->align = align;
     return region;
 }
 
@@ -175,7 +170,11 @@ void tm_destroy(shared_t shared as(unused)) {
             region->start = NULL;
         }
         // Destroy lock
-        destroy_lock(region);
+        if (!region->lock) {
+            destroy_lock(region->lock);
+            free(lock);
+
+        }
         free(region);
     }
 }
@@ -214,19 +213,13 @@ size_t tm_align(shared_t shared as(unused)) {
 **/
 tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) {
     region_t* region = (region_t*) shared;
-    if (is_ro) {
-        bool lock_acquired = acquire_read_lock(region);
-        if (!lock_acquired) {
-            return invalid_tx;
-        }
-        return read_only_tx;
-    } else {
-        bool lock_acquired = acquire_write_lock(region);
-        if (!lock_acquired) {
-            return invalid_tx;
-        }
-        return read_write_tx;
-    }
+    transaction_t* transaction = create_transaction(is_ro);
+    if (!transaction) return invalid_tx;
+
+    // Sample global version-clock
+    transaction->rv = fetch_global_counter(region->counter);
+
+    return transaction;
 }
 
 /** [thread-safe] End the given transaction.
@@ -236,10 +229,41 @@ tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) {
 **/
 bool tm_end(shared_t shared, tx_t tx) {
     region_t* region = (region_t*) shared;
-    if (tx == read_only_tx) {
-        release_read_lock(region);
-    } else {
-        release_write_lock(region);
+    transaction_t* transaction = (transaction_t*) tx;
+
+    if (!transaction->is_read_only) {
+        // Lock write_set
+
+        // TODO : Change this part to support mutiple memory locations
+
+        // list_t* write_set = transaction->write_set;
+        // node_t* node = write_set->first;
+        // while (node) {
+        //     // Lock node
+        //     node = node->next;
+        // }
+        acquired = acquire_lock(region->lock);
+        if (!acquired) return false;
+
+        // Increment global version-clock
+        transaction->wv = increment_and_fetch_global_counter(region->counter);
+
+        // Validate read-set
+        uint32_t lock = fetch_lock(region->lock);
+        if (get_lock_version(lock) > transaction->rv || get_lock_flag(lock) == LOCKED) {
+            return false;
+        }
+
+        // Commit and release the locks
+        list_t* write_set = transaction->write_set;
+        node_t* node = write_set->last;
+        while (node) {
+            store_t* store = (store_t*) node->content;
+            memcpy(store->address_to_be_written, store->value_to_be_written, store->size);
+            node = node->previous;
+        }
+
+        release_lock(region->lock, transaction->wv);
     }
     return true;
 }
@@ -252,7 +276,44 @@ bool tm_end(shared_t shared, tx_t tx) {
  * @return Whether the whole transaction can continue
 **/
 bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source, size_t size, void* target) {
+    region_t* region = (region_t*) shared;
+    transaction_t* transaction = (transaction_t*) tx;
+
+    // Check if load read_address already appears in the write_set
+    if (!transaction->is_read_only) {
+        // No write_set to check if transaction is read-only
+        int found = bloom_check(transaction->write_set_bloom_filter, source, sizeof(void*));
+        if (found) {
+            list_t* write_set = transaction->write_set;
+            node_t* node = write_set->first;
+            while (node) {
+                store_t* store = (store_t*) node->content;
+                if (store->address_to_be_written == source) {
+                    // Return value found
+                    memcpy(target, store->value_to_be_written, size);
+                    return true;
+                }
+                node = node->next;
+            }
+        }
+    }
+
+    // Sample lock
+    uint32_t lock = fetch_lock(region->lock);
+
+    // Reads the value and store in read_set
+    load_t load = new_load();
+    if (!load) return false;
+    load->read_address = source;
+    node_t* new_node = create_node(load);
+    add_node(transaction->read_set, new_node)
+
     memcpy(target, source, size);
+
+    // Post validation
+    if (get_lock_version(lock) > transaction->rv || get_lock_flag(lock) == LOCKED) {
+        return false;
+    }
     return true;
 }
 
@@ -265,7 +326,17 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source,
  * @return Whether the whole transaction can continue
 **/
 bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source, size_t size, void* target) {
-    memcpy(target, source, size);
+    transaction_t* transaction = (transaction_t*) tx;
+
+    store_t store = new_store();
+    if (!store) return false;
+    store->address_to_be_written = target;
+    store->size = size;
+    memcpy(store->value_to_be_written, source, size);
+
+    bloom_add(transaction->write_set_bloom_filter, &(store->address_to_be_written), sizeof(void*));
+    node_t* new_node = create_node(store);
+    add_node(transaction->write_set, new_node)
     return true;
 }
 
