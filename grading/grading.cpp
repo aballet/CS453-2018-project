@@ -1232,7 +1232,7 @@ int main(int argc, char** argv) {
         auto const nbrepeats     = 7;
         auto const seed          = static_cast<Seed>(::std::stoul(argv[1]));
         auto const clk_res       = Chrono::get_resolution();
-        auto const slow_factor   = 2ul;
+        auto const slow_factor   = 100ul;
         ::std::cout << "⎧ #worker threads:     " << nbworkers << ::std::endl;
         ::std::cout << "⎪ #TX per worker:      " << nbtxperwrk << ::std::endl;
         ::std::cout << "⎪ #repetitions:        " << nbrepeats << ::std::endl;

@@ -26,6 +26,9 @@ LDLIBS   :=
 
 .PHONY: build clean
 
+test:
+	gcc test.c tm.c transaction.c versioned_write_lock.c linked_list.c global_counter.c bloom.c MurmurHash2.c
+
 build: $(BIN)
 clean:
 	$(RM) $(OBJS) $(BIN)

@@ -1,9 +1,20 @@
 #include "transaction.h"
 
-transaction_t* create_transaction(bool is_read_only) {
+// ******* REGION
+
+uint32_t increment_and_fetch_tx_id(region_t* region) {
+    uint32_t val = atomic_fetch_add(&(region->tx_id), 1);
+    return val + 1;
+}
+
+// ******* TRANSACTION
+transaction_t* create_transaction(region_t* region, bool is_read_only) {
     transaction_t* transaction = (transaction_t*) malloc(sizeof(transaction_t));
     if (!transaction) return NULL;
     transaction->is_read_only = is_read_only;
+
+    // Init transaction id
+    transaction->id = increment_and_fetch_tx_id(region);
 
     // Init read-set and write-set
     transaction->read_set = create_list();
@@ -25,7 +36,7 @@ transaction_t* create_transaction(bool is_read_only) {
             free(transaction);
             return NULL;
         }
-        if (bloom_init(transaction->write_set_bloom_filter, 100000, 0.01) != 0) {
+        if (bloom_init(transaction->write_set_bloom_filter, 10000, 0.01) != 0) {
             free(transaction->write_set_bloom_filter);
             free(transaction->write_set);
             free(transaction->read_set);
@@ -41,11 +52,11 @@ transaction_t* create_transaction(bool is_read_only) {
 void destroy_transaction(transaction_t* transaction) {
     if (!transaction) return;
     if (transaction->read_set) {
-        destroy_list(transaction->read_set, void (*destroy_node)(node_t));
+        //destroy_list(transaction->read_set, void (*destroy_node)(node_t));
         free(transaction->read_set);
     }
     if (transaction->write_set) {
-        destroy_list(transaction->write_set, void (*destroy_node)(node_t));
+        //destroy_list(transaction->write_set, void (*destroy_node)(node_t));
         free(transaction->write_set);
     }
     if (transaction->write_set_bloom_filter) {
@@ -58,6 +69,9 @@ load_t* new_load() {
     return malloc(sizeof(load_t));
 }
 
-store_t* new_store() {
-    return malloc(sizeof(store_t));
+store_t* new_store(size_t size) {
+    store_t* store = (store_t*) malloc(sizeof(store_t));
+    store->value_to_be_written = malloc(size);
+    store->size = size;
+    return store;
 }

@@ -15,7 +15,7 @@ node_t* create_node(void* content) {
     if (!node) return NULL;
     node->previous = NULL;
     node->next = NULL;
-    node->content = segment;
+    node->content = content;
     return node;
 }
 
@@ -32,13 +32,13 @@ void add_node(list_t* list, node_t* node) {
     list->size += 1;
 }
 
-void destroy_list(list_t* list, void (*destroy_node)(node_t)) {
+void destroy_list(list_t* list, void (*destroy_node)(node_t*)) {
     node_t* node = list->first;
     while (node) {
         node_t* next_node = node->next;
         destroy_node(node);
         node = next_node;
     }
-    list->first == NULL;
-    list->last == NULL;
+    list->first = NULL;
+    list->last = NULL;
 }

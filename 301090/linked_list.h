@@ -1,3 +1,5 @@
+#pragma once
+
 typedef struct node {
     struct node *previous;
     struct node *next;
@@ -13,4 +15,4 @@ typedef struct list {
 list_t* create_list();
 node_t* create_node(void* content);
 void add_node(list_t* list, node_t* node);
-void destroy_list(list_t* list, void (*destroy_node)(node_t));
+void destroy_list(list_t* list, void (*destroy_node)(node_t*));
