@@ -9,8 +9,8 @@ global_counter_t* create_global_counter() {
     return counter;
 }
 
-void destroy_global_counter(global_counter_t* counter) {
-}
+// void destroy_global_counter(global_counter_t* counter) {
+// }
 
 uint32_t increment_and_fetch_global_counter(global_counter_t* counter) {
     uint32_t val = atomic_fetch_add(&(counter->version), 1);

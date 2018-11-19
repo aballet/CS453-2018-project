@@ -123,7 +123,7 @@ void tm_destroy(shared_t shared as(unused)) {
         }
         // Destroy counter
         if (region->counter) {
-            destroy_global_counter(region->counter);
+            //destroy_global_counter(region->counter);
             free(region->counter);
         }
         // Destroy lock

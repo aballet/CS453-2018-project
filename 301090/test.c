@@ -53,7 +53,7 @@ void* f(void* thr_data)
         //printf("Value read = %d\n", *(int*)tmp_region);
 
         did_commit = tm_end(tm, tx);
-        //printf("Committed? %d\n\n\n\n", did_commit);
+        printf("Committed? %d\n", did_commit);
     }
     return NULL;
 }
@@ -61,14 +61,18 @@ void* f(void* thr_data)
 int main(int argc, char const *argv[]) {
     tm = tm_create(sizeof(int), sizeof(void *));
 
-    pthread_t thr[1000];
-    for(int n = 0; n < 1000; ++n) {
+    pthread_t thr[5000];
+    for(int n = 0; n < 5000; ++n) {
         //sleep(1);
         pthread_create(&thr[n], NULL, f, NULL);
     }
 
-    for(int n = 0; n < 1000; ++n)
+    int i = 0;
+    for(int n = 0; n < 5000; ++n) {
         pthread_join(thr[n], NULL);
+        i++;
+        printf("Finished : %d\n", i);
+    }
 
     printf("DONE\n");
     tm_destroy(tm);

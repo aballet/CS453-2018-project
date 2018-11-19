@@ -32,9 +32,6 @@ uint32_t get_lock_thread_id(versioned_wr_lock_t* lock) {
 
 bool acquire_lock(versioned_wr_lock_t* lock, uint32_t tx_id) {
     versioned_wr_lock_inside_t actual_lock = lock->inside_lock;
-    if (actual_lock.thread_id == tx_id) {
-        return true;
-    }
     versioned_wr_lock_inside_t lock_locked = actual_lock;
     lock_locked.lock = 1;
     lock_locked.thread_id = tx_id;
@@ -46,6 +43,7 @@ bool acquire_lock(versioned_wr_lock_t* lock, uint32_t tx_id) {
     while (i > 0) {
         acquired = atomic_compare_exchange_weak(&(lock->inside_lock), &lock_unlocked, lock_locked);
         if (acquired) return true;
+        if (lock_unlocked.thread_id == tx_id) return true;
         lock_unlocked.lock = 0;
         i--;
     }

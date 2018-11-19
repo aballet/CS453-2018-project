@@ -10,7 +10,7 @@ typedef struct global_counter {
 } global_counter_t;
 
 global_counter_t* create_global_counter();
-void destroy_global_counter(global_counter_t* counter);
+//void destroy_global_counter(global_counter_t* counter);
 uint32_t increment_and_fetch_global_counter(global_counter_t* counter);
 uint32_t fetch_global_counter(global_counter_t* counter);
 
