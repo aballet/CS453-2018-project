@@ -201,8 +201,13 @@ public:
             if (unlikely(!realpath(path, resolved)))
                 throw Exception::PathResolve{};
             module = ::dlopen(resolved, RTLD_NOW | RTLD_LOCAL);
-            if (unlikely(!module))
+            // ::std::cout << "HELLO1" << "\n" << std::endl;
+            // ::std::cout << dlerror() << "\n" << std::endl;
+            // ::std::cout << "HELLO2" << "\n" << std::endl;
+            if (unlikely(!module)) {
+                ::std::cout << dlerror() << "\n" << std::endl;
                 throw Exception::ModuleLoading{};
+            }
         }
         { // Bind module's 'tm_*' symbols
             solve("tm_create", tm_create);
