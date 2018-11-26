@@ -49,14 +49,28 @@ transaction_t* create_transaction(region_t* region, bool is_read_only) {
     return transaction;
 }
 
+void destroy_write_node(node_t* node) {
+    store_t* content = (store_t*) node->content;
+    free(content->value_to_be_written);
+    content->value_to_be_written = NULL;
+    free(content);
+    node->content = NULL;
+}
+
+void destroy_read_node(node_t* node) {
+    load_t* content = (load_t*) node->content;
+    free(content);
+    node->content = NULL;
+}
+
 void destroy_transaction(transaction_t* transaction) {
     if (!transaction) return;
     if (transaction->read_set) {
-        //destroy_list(transaction->read_set, void (*destroy_node)(node_t));
+        destroy_list(transaction->read_set, destroy_read_node);
         free(transaction->read_set);
     }
     if (transaction->write_set) {
-        //destroy_list(transaction->write_set, void (*destroy_node)(node_t));
+        destroy_list(transaction->write_set, destroy_write_node);
         free(transaction->write_set);
     }
     if (transaction->write_set_bloom_filter) {
