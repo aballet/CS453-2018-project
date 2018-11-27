@@ -201,6 +201,8 @@ bool tm_end(shared_t shared, tx_t tx) {
     region_t* region = (region_t*) shared;
     transaction_t* transaction = (transaction_t*) tx;
 
+    //printf("Size of READ_SET = %d\n", transaction->read_set->size);
+    //printf("Size of WRITE_SET = %d\n", transaction->write_set->size);
     if (!transaction->is_read_only) {
         // Lock write_set
         list_t* acquired_locks = create_list();
