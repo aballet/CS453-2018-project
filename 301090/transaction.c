@@ -24,13 +24,14 @@ transaction_t* create_transaction(region_t* region, bool is_read_only) {
     // Init transaction id
     transaction->tx_id = increment_and_fetch_tx_id(region);
 
-    // Init read-set and write-set
-    transaction->read_set = create_list();
-    if (!transaction->read_set) {
-        free(transaction);
-        return NULL;
-    }
     if (!is_read_only) {
+        // Init read-set and write-set
+        transaction->read_set = create_list();
+        if (!transaction->read_set) {
+            free(transaction);
+            return NULL;
+        }
+
         transaction->write_set = create_list();
         if (!transaction->write_set) {
             destroy_list(transaction->read_set, destroy_read_node);
@@ -73,8 +74,10 @@ void destroy_transaction(transaction_t* transaction) {
     // }
 }
 
-load_t* new_load() {
-    return malloc(sizeof(load_t));
+load_t* new_load(size_t size) {
+    load_t* load = (load_t*) malloc(sizeof(load_t));
+    load->size = size;
+    return load;
 }
 
 store_t* new_store(size_t size) {

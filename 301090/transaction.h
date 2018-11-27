@@ -19,6 +19,7 @@ typedef struct transaction {
 
 typedef struct load {
     void const* read_address;
+    size_t size;
 } load_t;
 
 typedef struct store {
@@ -29,7 +30,7 @@ typedef struct store {
 
 transaction_t* create_transaction(region_t* region, bool is_read_only);
 void destroy_transaction(transaction_t* transaction);
-load_t* new_load();
+load_t* new_load(size_t size);
 store_t* new_store(size_t size);
 
 #endif /* TRANSACTION_H */

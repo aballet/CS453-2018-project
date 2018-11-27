@@ -22,13 +22,16 @@
 #endif
 
 // Internal headers
-#include <tm.h>
+#include "tm.h"
 
 #include <stdio.h>
+#include <errno.h>
+
 #include "region.h"
 #include "global_counter.h"
 #include "versioned_lock.h"
 #include "transaction.h"
+#include "list.h"
 
 // -------------------------------------------------------------------------- //
 
@@ -88,7 +91,11 @@ shared_t tm_create(size_t size, size_t align) {
   if (!region) {
       return invalid_shared;
   }
+
   // Allocate shared memory
+  if (align % sizeof(void*) != 0) {
+      align = sizeof(void*);
+  }
   if (posix_memalign(&(region->start), align, size) != 0) {
       free(region);
       return invalid_shared;
@@ -101,14 +108,35 @@ shared_t tm_create(size_t size, size_t align) {
       free(region);
       return invalid_shared;
   }
-  // Init lock
-  region->lock = create_versioned_lock();
-  if (!region->lock) {
+
+  // Init locks
+  size_t locks_array_size = size / align;
+  //printf("Locks array size = %zu\n", locks_array_size);
+  region->locks = (versioned_lock_t**) malloc(locks_array_size * sizeof(versioned_lock_t*));
+  if (!region->locks) {
       destroy_global_counter(region->counter);
       free(region->start);
       free(region);
       return invalid_shared;
   }
+
+  for (size_t i = 0; i < locks_array_size; i++) {
+      (region->locks)[i] = create_versioned_lock();
+      if (!(region->locks)[i]) {
+          for (size_t j = 0; j < i; j++) {
+              destroy_versioned_lock((region->locks)[j]);
+          }
+          destroy_global_counter(region->counter);
+          free(region->start);
+          free(region);
+          return invalid_shared;
+      }
+  }
+
+  // for (size_t i = 0; i < locks_array_size; i++) {
+  //     print_versioned_lock((region->locks)[i]);
+  // }
+
   // Init shared_memory with 0
   memset(region->start, 0, size);
 
@@ -131,9 +159,14 @@ void tm_destroy(shared_t shared) {
         if (region->counter) {
             destroy_global_counter(region->counter);
         }
-        // Destroy lock
-        if (region->lock) {
-            destroy_versioned_lock(region->lock);
+
+        // Destroy locks
+        if (region->locks) {
+            size_t locks_array_size = tm_size(shared) / tm_align(shared);
+            for (size_t i = 0; i < locks_array_size; i++) {
+                destroy_versioned_lock((region->locks)[i]);
+            }
+            free(region->locks);
         }
         free(region);
     }
@@ -170,70 +203,104 @@ bool tm_end(shared_t shared, tx_t tx) {
 
     if (!transaction->is_read_only) {
         // Lock write_set
-
+        list_t* acquired_locks = create_list();
         list_t* write_set = transaction->write_set;
-        node_t* node = write_set->first;
-        while (node) {
-            bool acquired = acquire_versioned_lock(region->lock, transaction->tx_id);
-            //printf("LOCK === %d\n", region->lock->tx_id);
-            if (!acquired) return false;
-            node = node->next;
+        node_t* write_node = write_set->first;
+        while (write_node) {
+            store_t* store = (store_t*) write_node->content;
+            int start_index = get_locks_start_index(region, store->address_to_be_written);
+            int end_index = get_locks_end_index(region, store->address_to_be_written, store->size);
+
+            for (int i = start_index; i <= end_index; i++) {
+                bool acquired = acquire_versioned_lock((region->locks)[i], transaction->tx_id);
+                if (acquired) {
+                    //printf("TRY TO ACQUIRE\n");
+                    //printf("LOCK ID = %d\n", i);
+                    //print_versioned_lock((region->locks)[i]);
+                    node_t* lock_node = create_node((region->locks)[i]);
+                    add_node(acquired_locks, lock_node);
+                } else {
+                    // Release every acquired lock and abort
+                    node_t* node_to_release = acquired_locks->first;
+                    while (node_to_release) {
+                        versioned_lock_t* lock_to_release = (versioned_lock_t*) node_to_release->content;
+                        release_versioned_lock_untouched(lock_to_release, transaction->tx_id);
+                        node_to_release = node_to_release->next;
+                    }
+                    return false;
+                }
+            }
+            write_node = write_node->next;
         }
 
         // Increment global version-clock
         transaction->wv = increment_and_fetch_global_counter(region->counter);
-        //printf("*** GLOBAL COUNTER : %d\n", transaction->wv);
+
+        // Validate read_set
         if (transaction->rv + 1 != transaction->wv) {
             list_t* read_set = transaction->read_set;
-            node = read_set->first;
-            while (node) {
-                if (get_versioned_lock_version(region->lock) > transaction->rv || get_versioned_lock_tx_id(region->lock) != transaction->tx_id) {
-                    // TODO : adapt to multiple locations
-                    release_versioned_lock(region->lock, transaction->wv);
-                    //printf("LOCK RELEASE === %d\n", region->lock->tx_id);
-                    return false;
+            node_t* read_node = read_set->first;
+            while (read_node) {
+                load_t* load = (load_t*) read_node->content;
+                int start_index = get_locks_start_index(region, load->read_address);
+                int end_index = get_locks_end_index(region, load->read_address, load->size);
+
+                for (int i = start_index; i <= end_index; i++) {
+                    // If lock.version > rv OR locked by another tx ==> abort
+                    versioned_lock_t* lock_to_validate = (region->locks)[i];
+                    if (get_versioned_lock_version(lock_to_validate) > transaction->rv || (get_versioned_lock_tx_id(lock_to_validate) != transaction->tx_id && get_versioned_lock_tx_id(lock_to_validate) != 0)) {
+                        // Release every acquired lock and abort
+                        node_t* node_to_release = acquired_locks->first;
+                        while (node_to_release) {
+                            versioned_lock_t* lock_to_release = (versioned_lock_t*) node_to_release->content;
+                            release_versioned_lock_untouched(lock_to_release, transaction->tx_id);
+                            node_to_release = node_to_release->next;
+                        }
+                        return false;
+                    }
                 }
-                node = node->next;
+                read_node = read_node->next;
             }
         }
 
         // Commit and release the locks
-        node = write_set->last;
-        while (node) {
-            store_t* store = (store_t*) node->content;
+        write_node = write_set->last;
+        while (write_node) {
+            store_t* store = (store_t*) write_node->content;
+            // Write value
             memcpy(store->address_to_be_written, store->value_to_be_written, store->size);
-            node = node->previous;
+            write_node = write_node->previous;
         }
-        // TODO : adapt to multiple locations
-        release_versioned_lock(region->lock, transaction->wv);
-        //printf("LOCK RELEASE === %d\n", region->lock->tx_id);
+        // Release locks
+        node_t* node_to_release = acquired_locks->first;
+        while (node_to_release) {
+            versioned_lock_t* lock_to_release = (versioned_lock_t*) node_to_release->content;
+            release_versioned_lock(lock_to_release, transaction->tx_id, transaction->wv);
+            node_to_release = node_to_release->next;
+        }
     }
-    //printf("SIZE OF READ SET = %d\n", transaction->read_set->size);
-    //printf("SIZE OF WRITE SET = %d\n", transaction->write_set->size);
     return true;
 }
 
-bool tm_read_helper(region_t* region, transaction_t* transaction, void const* source, size_t size, void* target, void* value_to_be_written) {
-    // Reads the value and store in read_set
-    load_t* load = new_load();
-    if (!load) return false;
-    load->read_address = source;
-    node_t* new_node = create_node(load);
-    add_node(transaction->read_set, new_node);
-
-    if (value_to_be_written) {
-        memcpy(target, value_to_be_written, size);
-    } else {
-        memcpy(target, source, size);
-    }
-
+bool tm_read_post_validation(region_t* region, transaction_t* transaction, const void* address, size_t size) {
     // Post validation
-    // printf("POST VALIDATION\n");
-    // printf("lock_version? %d\n", get_versioned_lock_version(region->lock));
-    // printf("rv? %d\n", transaction->rv);
-    // printf("lock tx_id? %d\n", get_versioned_lock_tx_id(region->lock));
-    if (get_versioned_lock_version(region->lock) > transaction->rv || (get_versioned_lock_tx_id(region->lock) != transaction->tx_id && get_versioned_lock_tx_id(region->lock) != 0)) {
-        return false;
+    int start_index = get_locks_start_index(region, address);
+    int end_index = get_locks_end_index(region, address, size);
+
+    //printf("start_index: %d\n", start_index);
+    //printf("end_index: %d\n", end_index);
+
+    for (int i = start_index; i <= end_index; i++) {
+        versioned_lock_t* lock_to_validate = (region->locks)[i];
+        //printf("POST VALIDATION\n");
+        //printf("lock_version? %d\n", get_versioned_lock_version(lock_to_validate));
+        //printf("rv? %d\n", transaction->rv);
+        //printf("lock tx_id? %d\n", get_versioned_lock_tx_id(lock_to_validate));
+
+        //print_versioned_lock(lock_to_validate);
+        if (get_versioned_lock_version(lock_to_validate) > transaction->rv || get_versioned_lock_tx_id(lock_to_validate) != 0) {
+            return false;
+        }
     }
     return true;
 }
@@ -243,7 +310,6 @@ bool tm_read_helper(region_t* region, transaction_t* transaction, void const* so
 bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source, size_t size, void* target) {
     region_t* region = (region_t*) shared;
     transaction_t* transaction = (transaction_t*) tx;
-
     // Check if load read_address already appears in the write_set
     if (!transaction->is_read_only) {
         // No write_set to check if transaction is read-only
@@ -255,18 +321,33 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source,
                 store_t* store = (store_t*) node->content;
                 if (store->address_to_be_written == source) {
                     // Return value found
-                    return tm_read_helper(region, transaction, source, size, target, store->value_to_be_written);
+                    // Reads the value and store in read_set
+                    load_t* load = new_load(size);
+                    if (!load) return false;
+                    load->read_address = source;
+                    node_t* new_node = create_node(load);
+                    if (!new_node) return false;
+                    add_node(transaction->read_set, new_node);
+                    memcpy(target, store->value_to_be_written, size);
+                    return tm_read_post_validation(region, transaction, source, size);
                 }
                 node = node->next;
             }
         //}
+        load_t* load = new_load(size);
+        if (!load) return false;
+        load->read_address = source;
+        node_t* new_node = create_node(load);
+        if (!new_node) return false;
+        add_node(transaction->read_set, new_node);
+        memcpy(target, source, size);
+        return tm_read_post_validation(region, transaction, source, size);
     }
-    return tm_read_helper(region, transaction, source, size, target, NULL);
-
+    memcpy(target, source, size);
+    return tm_read_post_validation(region, transaction, source, size);
 }
 
 // TODO : if fails, call tm_end
-
 bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source, size_t size, void* target) {
     transaction_t* transaction = (transaction_t*) tx;
 
