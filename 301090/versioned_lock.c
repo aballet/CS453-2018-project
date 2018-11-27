@@ -21,6 +21,8 @@ uint_t get_versioned_lock_version(versioned_lock_t* lock) {
 }
 
 bool acquire_versioned_lock(versioned_lock_t* lock, uint_t tx_id) {
+    if(lock->tx_id == tx_id) return true;
+    
     uint_t unlocked_tx_id = 0;
     bool acquired = false;
     int i = 100;

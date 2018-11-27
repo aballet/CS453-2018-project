@@ -29,3 +29,7 @@
 \.idea/
 
 cmake-build-debug/
+
+301090/\.DS_Store
+
+301090/a\.out
