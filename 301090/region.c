@@ -6,7 +6,7 @@ uint_t increment_and_fetch_tx_id(region_t* region) {
 }
 
 int get_locks_start_index(region_t* region, const void* address) {
-    return 0;
+    //return 0;
     void* start = region->start;
     size_t align = region->align;
     ptrdiff_t ptrdiff = address - start;
@@ -15,13 +15,10 @@ int get_locks_start_index(region_t* region, const void* address) {
 }
 
 int get_locks_end_index(region_t* region, const void* address, size_t size) {
-    return region->size / region->align - 1;
+    //return region->size / region->align - 1;
     void* start = region->start;
     size_t align = region->align;
     ptrdiff_t ptrdiff = address + size - start;
 
-    if (ptrdiff % align == 0) {
-        return ptrdiff / align - 1;
-    }
-    return ptrdiff / align;
+    return ptrdiff / align - 1;
 }
