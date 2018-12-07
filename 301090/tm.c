@@ -22,7 +22,7 @@
 #endif
 
 // Internal headers
-#include "tm.h"
+#include <tm.h>
 
 #include <stdio.h>
 #include <errno.h>
@@ -86,89 +86,15 @@ static inline void pause() {
 // -------------------------------------------------------------------------- //
 
 shared_t tm_create(size_t size, size_t align) {
-  // Allocate region structure
-  region_t* region = (region_t*) malloc(sizeof(region_t));
-  if (!region) {
-      return invalid_shared;
-  }
-
-  // Allocate shared memory
-  if (align % sizeof(void*) != 0) {
-      align = sizeof(void*);
-  }
-  if (posix_memalign(&(region->start), align, size) != 0) {
-      free(region);
-      return invalid_shared;
-  }
-
-  // Init counter
-  region->counter = create_global_counter();
-  if (!region->counter) {
-      free(region->start);
-      free(region);
-      return invalid_shared;
-  }
-
-  // Init locks
-  size_t locks_array_size = size / align;
-  //printf("Locks array size = %zu\n", locks_array_size);
-  region->locks = (versioned_lock_t**) malloc(locks_array_size * sizeof(versioned_lock_t*));
-  if (!region->locks) {
-      destroy_global_counter(region->counter);
-      free(region->start);
-      free(region);
-      return invalid_shared;
-  }
-
-  for (size_t i = 0; i < locks_array_size; i++) {
-      (region->locks)[i] = create_versioned_lock();
-      if (!(region->locks)[i]) {
-          for (size_t j = 0; j < i; j++) {
-              destroy_versioned_lock((region->locks)[j]);
-          }
-          destroy_global_counter(region->counter);
-          free(region->start);
-          free(region);
-          return invalid_shared;
-      }
-  }
-
-  // for (size_t i = 0; i < locks_array_size; i++) {
-  //     print_versioned_lock((region->locks)[i]);
-  // }
-
-  // Init shared_memory with 0
-  memset(region->start, 0, size);
-
-  // Finish initialization and return region
-  atomic_init(&(region->tx_id), 0);
-  region->size = size;
-  region->align = align;
-  return (shared_t) region;
-
+    region_t* region = create_region(size, align);
+    if (!region) return invalid_shared;
+    return (shared_t) region;
 }
 
 void tm_destroy(shared_t shared) {
     region_t* region = (region_t*) shared;
     if (region) {
-        if (region->start) {
-            free(region->start);
-            region->start = NULL;
-        }
-        // Destroy counter
-        if (region->counter) {
-            destroy_global_counter(region->counter);
-        }
-
-        // Destroy locks
-        if (region->locks) {
-            size_t locks_array_size = tm_size(shared) / tm_align(shared);
-            for (size_t i = 0; i < locks_array_size; i++) {
-                destroy_versioned_lock((region->locks)[i]);
-            }
-            free(region->locks);
-        }
-        free(region);
+        destroy_region(region);
     }
 }
 
