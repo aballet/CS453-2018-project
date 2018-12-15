@@ -46,4 +46,4 @@ $(BIN): $(OBJS) Makefile
 	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 test:
-	gcc test.c tm.c region.c transaction.c versioned_lock.c list.c global_counter.c
+	gcc test.c tm.c region.c transaction.c lock.c segment.c list.c version_list.c version_list_item.c

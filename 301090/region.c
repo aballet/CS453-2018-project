@@ -1,9 +1,10 @@
+#include <stdlib.h>
+#include <string.h>
+
 #include "region.h"
+#include "segment.h"
 
 region_t* create_region(size_t size, size_t align) {
-    region_t* region = (region_t*) malloc(sizeof(region_t));
-    return region;
-
     // Allocate region structure
     region_t* region = (region_t*) malloc(sizeof(region_t));
     if (!region) return NULL;
@@ -11,7 +12,7 @@ region_t* create_region(size_t size, size_t align) {
     // Align memory
     if (posix_memalign(&(region->start), align, size) != 0) {
         free(region);
-        return invalid_shared;
+        return NULL;
     }
 
     // Init segments
@@ -24,9 +25,9 @@ region_t* create_region(size_t size, size_t align) {
     }
 
     for (size_t i = 0; i < segments_array_size; i++) {
-        (region->segments)[i] = create_segment();
+        (region->segments)[i] = create_segment(align);
         if (!(region->segments)[i]) {
-            for (int j = 0; j < i; j++) {
+            for (size_t j = 0; j < i; j++) {
                 destroy_segment((region->segments)[j]);
             }
             free(region->start);
@@ -67,7 +68,7 @@ uint_t increment_and_fetch_tx_id(region_t* region) {
     return val + 1;
 }
 
-int get_segment_start_index(region_t* region, const void* address) {
+size_t get_segment_start_index(region_t* region, const void* address) {
     void* start = region->start;
     size_t align = region->align;
     ptrdiff_t ptrdiff = address - start;
@@ -75,10 +76,14 @@ int get_segment_start_index(region_t* region, const void* address) {
     return ptrdiff / align;
 }
 
-int get_segment_end_index(region_t* region, const void* address, size_t size) {
+size_t get_segment_end_index(region_t* region, const void* address, size_t size) {
     void* start = region->start;
     size_t align = region->align;
     ptrdiff_t ptrdiff = address + size - start;
 
-    return (ptrdiff / align) - 1;
+    return (ptrdiff / align);
+}
+
+segment_t* get_segment(region_t* region, size_t index) {
+    return (region->segments)[index];
 }

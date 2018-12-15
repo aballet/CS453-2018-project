@@ -1,10 +1,14 @@
-#include "segment.h"
+#include <stdlib.h>
 
-segment_t* create_segment() {
+#include "segment.h"
+#include "lock.h"
+#include "version_list.h"
+
+segment_t* create_segment(size_t align) {
     segment_t* segment = (segment_t*) malloc(sizeof(segment_t));
     if (!segment) return NULL;
 
-    segment->version_list = create_version_list();
+    segment->version_list = create_version_list(align);
     if (!segment->version_list) {
         free(segment);
         return NULL;
@@ -16,6 +20,8 @@ segment_t* create_segment() {
         free(segment);
         return NULL;
     }
+
+    return segment;
 }
 
 void destroy_segment(segment_t* segment) {

@@ -1,15 +1,14 @@
 #ifndef VERSION_LIST_ITEM_H
 #define VERSION_LIST_ITEM_H
 
-#include "version_list_item.h"
 #include "own_types.h"
 
 
-typedef struct version_list_item {
-    uint_t tx_id;
-    void* value;
-    list_t* read_list;
-} version_list_item_t;
+version_list_item_t* create_version_list_item_empty(size_t align);
+version_list_item_t* create_version_list_item(transaction_t* transaction, void* value, size_t size);
+void destroy_version_list_item(version_list_item_t* version_list_item);
+void add_reader(version_list_item_t* version_list_item, transaction_t* transaction);
+void destroy_read_list_node(node_t* node);
 
 
-#endif VERSION_LIST_ITEM_H
+#endif /* VERSION_LIST_ITEM_H */

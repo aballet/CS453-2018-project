@@ -1,10 +1,11 @@
+#include <stdlib.h>
+
 #include "lock.h"
 
 lock_t* create_lock() {
     lock_t* lock = (lock_t*) malloc(sizeof(lock_t));
     if (!lock) return NULL;
     atomic_init(&(lock->tx_id), 0);
-    lock->version = 0;
     return lock;
 }
 
@@ -21,19 +22,21 @@ bool acquire_lock(transaction_t* transaction, lock_t* lock) {
 
     uint_t unlocked_tx_id = 0;
     bool acquired = false;
-    int i = 100;
-    while (i > 0) {
+    //int i = 100;
+    //while (i > 0) {
+    while (!acquired) {
         acquired = atomic_compare_exchange_weak(&(lock->tx_id), &unlocked_tx_id, transaction->tx_id);
-        if (acquired) return true;
+        //if (acquired) return true;
         unlocked_tx_id = 0;
 
-        i--;
+        //i--;
     }
-    return false;
+    return true;
 }
 
-void release_lock(transaction_t* transaction, lock_t* lock) {
-    if(lock->tx_id != transaction->tx_id) return;
+bool release_lock(transaction_t* transaction, lock_t* lock) {
+    if(lock->tx_id != transaction->tx_id) return false;
 
     atomic_store(&(lock->tx_id), 0);
+    return true;
 }

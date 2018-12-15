@@ -37,7 +37,7 @@ void* f(void* thr_data)
             break;
         }
 
-        bool can_continue_after_read = tm_read(tm, tx, region+3, sizeof(int), tmp_region);
+        bool can_continue_after_read = tm_read(tm, tx, region+1, sizeof(int), tmp_region);
         printf("Can continue after read? %d\n", can_continue_after_read);
         printf("Value read = %d\n", *(int*)tmp_region);
 
@@ -48,7 +48,7 @@ void* f(void* thr_data)
             break;
         }
 
-        can_continue_after_read = tm_read(tm, tx, region+1, 3*sizeof(int), tmp_region);
+        can_continue_after_read = tm_read(tm, tx, region+1, sizeof(int), tmp_region);
         printf("Can continue after read? %d\n", can_continue_after_read);
         printf("Value read = %d\n", *(int*)tmp_region);
 
