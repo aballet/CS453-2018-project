@@ -22,14 +22,9 @@ bool acquire_lock(transaction_t* transaction, lock_t* lock) {
 
     uint_t unlocked_tx_id = 0;
     bool acquired = false;
-    //int i = 100;
-    //while (i > 0) {
     while (!acquired) {
         acquired = atomic_compare_exchange_weak(&(lock->tx_id), &unlocked_tx_id, transaction->tx_id);
-        //if (acquired) return true;
         unlocked_tx_id = 0;
-
-        //i--;
     }
     return true;
 }

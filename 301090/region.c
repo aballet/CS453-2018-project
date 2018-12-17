@@ -30,6 +30,7 @@ region_t* create_region(size_t size, size_t align) {
             for (size_t j = 0; j < i; j++) {
                 destroy_segment((region->segments)[j]);
             }
+            free(region->segments);
             free(region->start);
             free(region);
             return NULL;

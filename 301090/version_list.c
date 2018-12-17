@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "version_list.h"
 #include "list.h"
@@ -35,4 +36,24 @@ void add_version_list_item(version_list_t* version_list, version_list_item_t* ve
 
     node_t* node = create_node(version_list_item);
     add_node(version_list->list, node);
+}
+
+void print_version_list(version_list_t* version_list) {
+    printf("*** VERSION_LIST ***\n");
+    node_t* node = version_list->list->first;
+    while (node) {
+        version_list_item_t* version_list_item = node->content;
+        printf("%d[", version_list_item->tx_id);
+        list_t* read_list = version_list_item->read_list;
+        if (read_list) {
+            node_t* node2 = read_list->first;
+            while (node2) {
+                uint_t* id = (uint_t*) node2->content;
+                printf("%d,", *id);
+                node2 = node2->next;
+            }
+        }
+        printf("]\n");
+        node = node->next;
+    }
 }

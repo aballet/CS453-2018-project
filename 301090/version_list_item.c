@@ -9,7 +9,7 @@ version_list_item_t* create_version_list_item_empty(size_t align) {
     version_list_item_t* version_list_item = (version_list_item_t*) malloc(sizeof(version_list_item_t));
     version_list_item->tx_id = 1;
     version_list_item->value = calloc(1, align);
-    version_list_item->read_list = NULL;
+    version_list_item->read_list = create_list();
     return version_list_item;
 }
 
@@ -18,7 +18,7 @@ version_list_item_t* create_version_list_item(transaction_t* transaction, void* 
     version_list_item->tx_id = transaction->tx_id;
     version_list_item->value = malloc(size);
     memcpy(version_list_item->value, value, size);
-    version_list_item->read_list = NULL;
+    version_list_item->read_list = create_list();
     return version_list_item;
 }
 

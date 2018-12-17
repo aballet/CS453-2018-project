@@ -16,41 +16,64 @@ void* f(void* thr_data)
         void* region = tm_start(tm);
         void* tmp_region = malloc(sizeof(void*));
 
-        int to_write = 10;
-        bool can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(int), region);
+        double to_write = 10;
+        bool can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(double), region);
         printf("Can continue after write? %d\n", can_continue_after_write);
         if (!can_continue_after_write) {
             break;
         }
 
         to_write = 20;
-        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(int), region+1);
+        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(double), region+1* sizeof(double));
         printf("Can continue after write? %d\n", can_continue_after_write);
         if (!can_continue_after_write) {
             break;
         }
 
         to_write = 30;
-        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(int), region+2);
+        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(double), region+2* sizeof(double));
         printf("Can continue after write? %d\n", can_continue_after_write);
         if (!can_continue_after_write) {
             break;
         }
 
-        bool can_continue_after_read = tm_read(tm, tx, region+1, sizeof(int), tmp_region);
+        bool can_continue_after_read = tm_read(tm, tx, region+1* sizeof(double), sizeof(double), tmp_region);
         printf("Can continue after read? %d\n", can_continue_after_read);
-        printf("Value read = %d\n", *(int*)tmp_region);
+        printf("Value read = %f\n", *(double*)tmp_region);
 
         to_write = 40;
-        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(int), region+3);
+        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(double), region+3* sizeof(double));
         printf("Can continue after write? %d\n", can_continue_after_write);
         if (!can_continue_after_write) {
             break;
         }
 
-        can_continue_after_read = tm_read(tm, tx, region+1, sizeof(int), tmp_region);
+        can_continue_after_read = tm_read(tm, tx, region+1* sizeof(double), sizeof(double), tmp_region);
         printf("Can continue after read? %d\n", can_continue_after_read);
-        printf("Value read = %d\n", *(int*)tmp_region);
+        printf("Value read = %f\n", *(double*)tmp_region);
+
+        did_commit = tm_end(tm, tx);
+        printf("Committed? %d\n", did_commit);
+
+
+
+
+        tx = tm_begin(tm, false);
+
+        can_continue_after_read = tm_read(tm, tx, region+1* sizeof(double), sizeof(double), tmp_region);
+        printf("Can continue after read? %d\n", can_continue_after_read);
+        printf("Value read = %f\n", *(double*)tmp_region);
+
+        to_write = 30;
+        can_continue_after_write = tm_write(tm, tx, &to_write, sizeof(double), region+1* sizeof(double));
+        printf("Can continue after write? %d\n", can_continue_after_write);
+        if (!can_continue_after_write) {
+            break;
+        }
+
+        can_continue_after_read = tm_read(tm, tx, region+1* sizeof(double), sizeof(double), tmp_region);
+        printf("Can continue after read? %d\n", can_continue_after_read);
+        printf("Value read = %f\n", *(double*)tmp_region);
 
         did_commit = tm_end(tm, tx);
         printf("Committed? %d\n", did_commit);
@@ -59,17 +82,17 @@ void* f(void* thr_data)
 }
 
 int main(int argc, char const *argv[]) {
-    tm = tm_create(4*sizeof(void*), sizeof(void*));
+    tm = tm_create(4*sizeof(double), sizeof(double));
 
-    pthread_t thr[1000];
-    for(int n = 0; n < 1000; ++n) {
+    pthread_t thr[100];
+    for(int n = 0; n < 100; ++n) {
         //sleep(1);
         printf("\n\n\n");
         pthread_create(&thr[n], NULL, f, NULL);
     }
 
     int i = 0;
-    for(int n = 0; n < 1000; ++n) {
+    for(int n = 0; n < 100; ++n) {
         pthread_join(thr[n], NULL);
         i++;
         printf("Finished : %d\n", i);

@@ -50,6 +50,10 @@ read_item_t* new_read_set_item(void* address, size_t size, void* value) {
     read_item->address = address;
     read_item->size = size;
     read_item->value = malloc(size);
+    if (!read_item->value) {
+        free(read_item);
+        return NULL;
+    }
     memcpy(read_item->value, value, size);
     return read_item;
 }
@@ -70,6 +74,7 @@ write_item_t* new_write_set_item(void* address, size_t size, void const* value) 
         return NULL;
     }
     memcpy(write_item->value, value, size);
+
     return write_item;
 }
 

@@ -152,7 +152,7 @@ public:
      * @param prob_long     Probability of running a long, read-only control transaction
      * @param prob_alloc    Probability of running an allocation/deallocation transaction, knowing a long transaction won't run
     **/
-    WorkloadBank(TransactionalLibrary const& library, size_t nbworkers, size_t nbtxperwrk, size_t nbaccounts, size_t expnbaccounts, Balance init_balance, float prob_long, float prob_alloc): Workload{library, AccountSegment::align(), AccountSegment::size(nbaccounts)}, nbworkers{nbworkers}, nbtxperwrk{nbtxperwrk}, nbaccounts{nbaccounts}, expnbaccounts{expnbaccounts}, init_balance{init_balance}, prob_long{prob_long}, prob_alloc{prob_alloc}, barrier{nbworkers} {}
+    WorkloadBank(TransactionalLibrary const& library, size_t nbworkers, size_t nbtxperwrk, size_t nbaccounts, size_t expnbaccounts, Balance init_balance, float prob_long, float prob_alloc): Workload{library, AccountSegment::align(), AccountSegment::size(nbaccounts)}, nbworkers{nbworkers}, nbtxperwrk{nbtxperwrk}, nbaccounts{nbaccounts}, expnbaccounts{expnbaccounts}, init_balance{init_balance}, prob_long{prob_long}, prob_alloc{prob_alloc}, barrier{static_cast<Barrier::Counter>(nbworkers)} {}
 private:
     /** Long read-only transaction, summing the balance of each account.
      * @param count Loosely-updated number of accounts
@@ -170,13 +170,17 @@ private:
                 sum += segment.parity;
                 for (decltype(count) i = 0; i < segment_count; ++i) {
                     Balance local = segment.accounts[i];
-                    if (unlikely(local < 0))
+                    if (unlikely(local < 0)) {
                         return false;
+                    }
                     sum += local;
                 }
                 start = segment.next;
             }
             nbaccounts = count;
+            if (sum != static_cast<Balance>(init_balance * count)) {
+                std::cout << "nbaccounts = " << nbaccounts << "...\n";
+            }
             return sum == static_cast<Balance>(init_balance * count);
         });
     }
@@ -296,7 +300,7 @@ public:
         for (size_t cntr = 0; cntr < nbtxperwrk; ++cntr) {
             if (long_dist(engine)) { // Do a long transaction
                 if (unlikely(!long_tx(count)))
-                    return "Violated isolation or atomicity";
+                    return "Violated isolation or atomicity 1";
             } else if (alloc_dist(engine)) { // Do an allocation transaction
                 alloc_tx(alloc_trigger(engine));
             } else { // Do a short transaction
@@ -307,7 +311,7 @@ public:
         { // Last long transaction
             size_t dummy;
             if (!long_tx(dummy))
-                return "Violated isolation or atomicity";
+                return "Violated isolation or atomicity 2";
         }
         return nullptr;
     }
@@ -328,7 +332,7 @@ public:
                 ::std::cout << "HERE!" << ::std::endl;
                 barrier.sync();
                 barrier.sync();
-                return "Violated consistency";
+                return "Violated consistency 1";
             }
         }
         barrier.sync();
@@ -347,7 +351,7 @@ public:
             });
             if (unlikely(!correct)) {
                 barrier.sync();
-                return "Violated consistency, isolation or atomicity";
+                return "Violated consistency, isolation or atomicity 3";
             }
         }
         barrier.sync();
@@ -357,7 +361,7 @@ public:
                 return counter == 0;
             });
             if (unlikely(!correct))
-                return "Violated consistency";
+                return "Violated consistency 2";
         }
         return nullptr;
     }

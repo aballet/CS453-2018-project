@@ -88,6 +88,7 @@ static inline void pause() {
 // -------------------------------------------------------------------------- //
 
 shared_t tm_create(size_t size, size_t align) {
+    setbuf(stdout, NULL);
     region_t* region = create_region(size, align);
     if (!region) return invalid_shared;
     return (shared_t) region;
@@ -116,6 +117,8 @@ size_t tm_align(shared_t shared) {
 }
 
 tx_t tm_begin(shared_t shared, bool is_ro) {
+    //printf("** START tm_begin\n");
+
     region_t* region = (region_t*) shared;
     transaction_t* transaction = create_transaction(region, is_ro);
     if (!transaction) return invalid_tx;
@@ -125,14 +128,17 @@ tx_t tm_begin(shared_t shared, bool is_ro) {
 
 bool check_versions(transaction_t* transaction, segment_t* segment) {
     version_list_t* version_list = segment->version_list;
-
     node_t* version_list_node = version_list->list->first;
+
     while (version_list_node) {
         version_list_item_t* version_list_item = (version_list_item_t*) version_list_node->content;
         list_t* read_list = version_list_item->read_list;
+
         node_t* read_list_node = read_list->first;
+
         while (read_list_node) {
             uint_t* k = (uint_t*) read_list_node->content;
+            //printf("k = %d\n", *k);
             if (version_list_item->tx_id < transaction->tx_id && transaction->tx_id < *k) {
                 return false;
             }
@@ -140,27 +146,37 @@ bool check_versions(transaction_t* transaction, segment_t* segment) {
         }
         version_list_node = version_list_node->next;
     }
+
     return true;
 }
 
 bool tm_end(shared_t shared, tx_t tx) {
+    //printf("** START tm_end\n");
+
     region_t* region = (region_t*) shared;
     transaction_t* transaction = (transaction_t*) tx;
 
-    if (transaction->is_read_only) return true;
+    if (transaction->is_read_only) {
+        //printf("** END tm_end : read_only\n");
+        return true;
+    }
 
     list_t* lock_set = create_list();
 
     list_t* write_set = transaction->write_set;
     node_t* node = write_set->first;
+
     while (node) {
         write_item_t* write_item = node->content;
         size_t start_index = get_segment_start_index(region, write_item->address);
         size_t end_index = get_segment_end_index(region, write_item->address, write_item->size);
         for (size_t i = start_index; i < end_index; i++) {
             segment_t* segment = get_segment(region, i);
-            lock_segment(transaction, segment);
-            if (check_versions(transaction, segment)) {
+            bool acquired = lock_segment(transaction, segment);
+            if (acquired) {
+                node_t* lock_node = create_node(segment);
+                add_node(lock_set, lock_node);
+            } else {
                 node_t* lock_node = lock_set->first;
                 while (lock_node) {
                     segment_t* locked_segment = (segment_t*) lock_node->content;
@@ -168,10 +184,19 @@ bool tm_end(shared_t shared, tx_t tx) {
                     lock_node = lock_node->next;
                 }
                 // TODO: destroy lock_set
+                //printf("** END tm_end : false\n");
                 return false;
-            } else {
-                node_t* lock_node = create_node(segment);
-                add_node(lock_set, lock_node);
+            }
+            if (!check_versions(transaction, segment)) {
+                node_t* lock_node = lock_set->first;
+                while (lock_node) {
+                    segment_t* locked_segment = (segment_t*) lock_node->content;
+                    unlock_segment(transaction, locked_segment);
+                    lock_node = lock_node->next;
+                }
+                // TODO: destroy lock_set
+                //printf("** END tm_end : false\n");
+                return false;
             }
         }
         node = node->next;
@@ -182,16 +207,23 @@ bool tm_end(shared_t shared, tx_t tx) {
         write_item_t* write_item = node->content;
         size_t start_index = get_segment_start_index(region, write_item->address);
         size_t end_index = get_segment_end_index(region, write_item->address, write_item->size);
+
+        //printf("address : %p\n", write_item->address);
+        //printf("start : %zu\n", start_index);
+        //printf("end : %zu\n", end_index);
         int j = 0;
-        void* address = write_item->address;
+        void* value = write_item->value;
         size_t align = region->align;
         for (size_t i = start_index; i < end_index; i++) {
             segment_t* segment = get_segment(region, i);
             version_list_t* version_list = segment->version_list;
-            version_list_item_t* version_list_item = create_version_list_item(transaction, address + j * align, region->align);
+            version_list_item_t* version_list_item = create_version_list_item(transaction, value + j * align, region->align);
             add_version_list_item(version_list, version_list_item);
+            //print_version_list(version_list);
             j++;
         }
+
+        //memcpy(write_item->address, write_item->value, write_item->size);
         node = node->previous;
     }
 
@@ -203,12 +235,14 @@ bool tm_end(shared_t shared, tx_t tx) {
         lock_node = lock_node->next;
     }
 
+    //printf("** END tm_end : true\n");
     return true;
 }
 
 version_list_item_t* find_lts(region_t* region, transaction_t* transaction, segment_t* segment) {
     version_list_t* version_list = segment->version_list;
     version_list_item_t* closest_version_list_item = create_version_list_item_empty(region->align);
+    closest_version_list_item->tx_id = 0;
 
     node_t* node = version_list->list->first;
     while (node) {
@@ -224,6 +258,8 @@ version_list_item_t* find_lts(region_t* region, transaction_t* transaction, segm
 
 // TODO : if fails, call tm_end
 bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source, size_t size, void* target) {
+    //printf("** START tm_read\n");
+
     region_t* region = (region_t*) shared;
     transaction_t* transaction = (transaction_t*) tx;
 
@@ -238,21 +274,53 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source,
         node = node->next;
     }
 
+    list_t* lock_set = create_list();
+
     // Lock segments
     size_t start_index = get_segment_start_index(region, source);
     size_t end_index = get_segment_end_index(region, source, size);
+
+    for (size_t i = start_index; i < end_index; i++) {
+        segment_t* segment = get_segment(region, i);
+        bool acquired = lock_segment(transaction, segment);
+        if (acquired) {
+            node_t* lock_node = create_node(segment);
+            add_node(lock_set, lock_node);
+        } else {
+            node_t* lock_node = lock_set->first;
+            while (lock_node) {
+                segment_t* locked_segment = (segment_t*) lock_node->content;
+                unlock_segment(transaction, locked_segment);
+                lock_node = lock_node->next;
+            }
+            // TODO : Free lock_set
+            return false;
+        }
+    }
+
+    // Copy segments
     size_t j = 0;
     size_t align = region->align;
     for (size_t i = start_index; i < end_index; i++) {
+        //printf("i = %zu\n", i);
+
         segment_t* segment = get_segment(region, i);
-        lock_segment(transaction, segment);
         version_list_item_t* lts = find_lts(region, transaction, segment);
-        printf("%p\n", lts->value);
         memcpy(target + j * align, lts->value, align);
         add_reader(lts, transaction);
-        unlock_segment(transaction, segment);
         j++;
     }
+
+    // Unlock segments
+    node_t* lock_node = lock_set->first;
+    while (lock_node) {
+        segment_t* locked_segment = (segment_t*) lock_node->content;
+        unlock_segment(transaction, locked_segment);
+        lock_node = lock_node->next;
+    }
+    // TODO : Free lock_set
+    //printf("** END tm_read\n");
+
     return true;
 }
 
