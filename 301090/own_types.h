@@ -3,7 +3,7 @@
 
 #include <stdatomic.h>
 #include <stdbool.h>
-
+#include "hashset.h"
 
 
 /* UINT */
@@ -63,6 +63,7 @@ typedef struct write_item {
 
 typedef struct version_list {
     list_t* list;
+    uint_t highest_tx_id;
 } version_list_t;
 
 
@@ -95,6 +96,7 @@ typedef struct region {
     atomic_uint tx_id;
     size_t n_segments;
     segment_t** segments;
+    hashset_t dead_transactions;
 } region_t;
 
 

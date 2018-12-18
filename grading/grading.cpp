@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
                 res = 16;
             return static_cast<size_t>(res);
         }();
-        auto const nbtxperwrk    = 4000ul / nbworkers;
+        auto const nbtxperwrk    = 3000ul / nbworkers;
         auto const nbaccounts    = 32 * nbworkers;
         auto const expnbaccounts = 1024 * nbworkers;
         auto const init_balance  = 100ul;

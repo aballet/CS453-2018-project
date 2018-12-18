@@ -1,8 +1,20 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "region.h"
 #include "segment.h"
+#include "list.h"
+#include "hashset.h"
+
+
+void destroy_dead_transaction_node(node_t* node) {
+    if (node->content) {
+        free(node->content);
+    }
+
+    free(node);
+}
 
 region_t* create_region(size_t size, size_t align) {
     // Allocate region structure
@@ -38,6 +50,9 @@ region_t* create_region(size_t size, size_t align) {
     }
     region->n_segments = segments_array_size;
 
+    // Init dead transactions set
+    region->dead_transactions = hashset_create();
+
     // Init shared_memory with 0
     memset(region->start, 0, size);
 
@@ -51,6 +66,11 @@ region_t* create_region(size_t size, size_t align) {
 void destroy_region(region_t* region) {
     if (region->start) {
         free(region->start);
+    }
+
+    // Destroy dead transactions list
+    if (region->dead_transactions) {
+        hashset_destroy(region->dead_transactions);
     }
 
     // Destroy segments
@@ -87,4 +107,13 @@ size_t get_segment_end_index(region_t* region, const void* address, size_t size)
 
 segment_t* get_segment(region_t* region, size_t index) {
     return (region->segments)[index];
+}
+
+void add_dead_transaction(region_t* region, transaction_t* transaction) {
+    void* item = (void*) transaction->tx_id;
+    hashset_add(region->dead_transactions, item);
+}
+
+bool is_transaction_dead(region_t* region, uint_t dead_tx_id) {
+    return hashset_is_member(region->dead_transactions, (void*) dead_tx_id);
 }

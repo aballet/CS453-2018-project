@@ -34,6 +34,31 @@ void add_node(list_t* list, node_t* node) {
     list->size += 1;
 }
 
+void remove_node(list_t* list, node_t* node) {
+    if (list->first == node && list->last == node) {
+        list->first = NULL;
+        list->last = NULL;
+    } else if (list->first == node) {
+        node_t* new_first = node->next;
+        new_first->previous = NULL;
+        list->first = new_first;
+        node->next = NULL;
+    } else if (list->last == node) {
+        node_t* new_last = node->previous;
+        new_last->next = NULL;
+        list->last = new_last;
+        node->previous = NULL;
+    } else {
+        node_t* next = node->next;
+        node_t* previous = node->previous;
+        next->previous = previous;
+        previous->next = next;
+        node->next = NULL;
+        node->previous = NULL;
+    }
+    list->size -= 1;
+}
+
 void destroy_list(list_t* list, void (*destroy_node)(node_t*)) {
     node_t* node = list->first;
     while (node) {
@@ -43,4 +68,5 @@ void destroy_list(list_t* list, void (*destroy_node)(node_t*)) {
     }
     list->first = NULL;
     list->last = NULL;
+    free(list);
 }

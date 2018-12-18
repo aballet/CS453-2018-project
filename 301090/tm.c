@@ -130,6 +130,7 @@ bool check_versions(transaction_t* transaction, segment_t* segment) {
     version_list_t* version_list = segment->version_list;
     node_t* version_list_node = version_list->list->first;
 
+    int i = 0;
     while (version_list_node) {
         version_list_item_t* version_list_item = (version_list_item_t*) version_list_node->content;
         list_t* read_list = version_list_item->read_list;
@@ -143,6 +144,7 @@ bool check_versions(transaction_t* transaction, segment_t* segment) {
                 return false;
             }
             read_list_node = read_list_node->next;
+            i++;
         }
         version_list_node = version_list_node->next;
     }
@@ -185,6 +187,7 @@ bool tm_end(shared_t shared, tx_t tx) {
                 }
                 // TODO: destroy lock_set
                 //printf("** END tm_end : false\n");
+                destroy_transaction(region, transaction);
                 return false;
             }
             if (!check_versions(transaction, segment)) {
@@ -196,6 +199,7 @@ bool tm_end(shared_t shared, tx_t tx) {
                 }
                 // TODO: destroy lock_set
                 //printf("** END tm_end : false\n");
+                destroy_transaction(region, transaction);
                 return false;
             }
         }
@@ -208,9 +212,6 @@ bool tm_end(shared_t shared, tx_t tx) {
         size_t start_index = get_segment_start_index(region, write_item->address);
         size_t end_index = get_segment_end_index(region, write_item->address, write_item->size);
 
-        //printf("address : %p\n", write_item->address);
-        //printf("start : %zu\n", start_index);
-        //printf("end : %zu\n", end_index);
         int j = 0;
         void* value = write_item->value;
         size_t align = region->align;
@@ -219,11 +220,17 @@ bool tm_end(shared_t shared, tx_t tx) {
             version_list_t* version_list = segment->version_list;
             version_list_item_t* version_list_item = create_version_list_item(transaction, value + j * align, region->align);
             add_version_list_item(version_list, version_list_item);
+
+            // Garbage collection
+            //printf("versionListSize = %d\n", version_list->list->size);
+            if (version_list->list->size > 100) {
+                init_garbage_collection(region, version_list);
+            }
+
             //print_version_list(version_list);
             j++;
         }
 
-        //memcpy(write_item->address, write_item->value, write_item->size);
         node = node->previous;
     }
 
@@ -294,6 +301,7 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source,
                 lock_node = lock_node->next;
             }
             // TODO : Free lock_set
+            destroy_transaction(region, transaction);
             return false;
         }
     }

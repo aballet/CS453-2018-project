@@ -32,16 +32,19 @@ transaction_t* create_transaction(region_t* region, bool is_read_only) {
     return transaction;
 }
 
-void destroy_transaction(transaction_t* transaction) {
+void destroy_transaction(region_t* region, transaction_t* transaction) {
     if (!transaction) return;
+
     if (transaction->read_set) {
         destroy_list(transaction->read_set, destroy_read_set_node);
-        free(transaction->read_set);
     }
+
     if (transaction->write_set) {
-        destroy_list(transaction->read_set, destroy_write_set_node);
-        free(transaction->write_set);
+        destroy_list(transaction->write_set, destroy_write_set_node);
     }
+
+    add_dead_transaction(region, transaction);
+
     free(transaction);
 }
 
