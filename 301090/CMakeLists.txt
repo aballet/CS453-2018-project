@@ -15,7 +15,7 @@ add_executable(301090
         region.h
         segment.c
         segment.h
-        test.c
+        test.cpp
         tm.c
         tm.h
         transaction.c

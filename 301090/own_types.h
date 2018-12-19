@@ -63,7 +63,6 @@ typedef struct write_item {
 
 typedef struct version_list {
     list_t* list;
-    uint_t highest_tx_id;
 } version_list_t;
 
 
@@ -73,9 +72,10 @@ typedef struct version_list {
 typedef struct version_list_item {
     uint_t tx_id;
     void* value;
-    list_t* read_list;
     bool has_been_read;
     uint_t readers_max_tx_id;
+    bool has_nts;
+    uint_t nts;
 } version_list_item_t;
 
 
@@ -98,7 +98,8 @@ typedef struct region {
     atomic_uint tx_id;
     size_t n_segments;
     segment_t** segments;
-    hashset_t dead_transactions;
+    hashset_t live_transactions;
+    lock_t* live_transactions_lock;
 } region_t;
 
 
