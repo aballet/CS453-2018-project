@@ -86,6 +86,14 @@ static inline void pause() {
 }
 
 // -------------------------------------------------------------------------- //
+// SIGNATURES
+
+
+version_list_item_t* find_lts(region_t* region, transaction_t* transaction, segment_t* segment);
+
+// -------------------------------------------------------------------------- //
+
+
 
 shared_t tm_create(size_t size, size_t align) {
     setbuf(stdout, NULL);
@@ -130,21 +138,12 @@ bool check_versions(transaction_t* transaction, segment_t* segment) {
     version_list_t* version_list = segment->version_list;
     node_t* version_list_node = version_list->list->first;
 
-    int i = 0;
     while (version_list_node) {
         version_list_item_t* version_list_item = (version_list_item_t*) version_list_node->content;
-        list_t* read_list = version_list_item->read_list;
-
-        node_t* read_list_node = read_list->first;
-
-        while (read_list_node) {
-            uint_t* k = (uint_t*) read_list_node->content;
-            //printf("k = %d\n", *k);
-            if (version_list_item->tx_id < transaction->tx_id && transaction->tx_id < *k) {
+        if (version_list_item->has_been_read) {
+            if (version_list_item->tx_id < transaction->tx_id && transaction->tx_id < version_list_item->readers_max_tx_id) {
                 return false;
             }
-            read_list_node = read_list_node->next;
-            i++;
         }
         version_list_node = version_list_node->next;
     }
@@ -224,7 +223,7 @@ bool tm_end(shared_t shared, tx_t tx) {
             // Garbage collection
             //printf("versionListSize = %d\n", version_list->list->size);
             if (version_list->list->size > 100) {
-                init_garbage_collection(region, version_list);
+                //init_garbage_collection(region, version_list);
             }
 
             //print_version_list(version_list);

@@ -74,6 +74,8 @@ typedef struct version_list_item {
     uint_t tx_id;
     void* value;
     list_t* read_list;
+    bool has_been_read;
+    uint_t readers_max_tx_id;
 } version_list_item_t;
 
 
