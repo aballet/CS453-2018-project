@@ -213,7 +213,7 @@ bool tm_end(shared_t shared, tx_t tx) {
             int start_index = get_locks_start_index(region, store->address_to_be_written);
             int end_index = get_locks_end_index(region, store->address_to_be_written, store->size);
 
-            for (int i = start_index; i <= end_index; i++) {
+            for (int i = start_index; i < end_index; i++) {
                 bool acquired = acquire_versioned_lock((region->locks)[i], transaction->tx_id);
                 if (acquired) {
                     //printf("TRY TO ACQUIRE\n");
@@ -247,7 +247,7 @@ bool tm_end(shared_t shared, tx_t tx) {
                 int start_index = get_locks_start_index(region, load->read_address);
                 int end_index = get_locks_end_index(region, load->read_address, load->size);
 
-                for (int i = start_index; i <= end_index; i++) {
+                for (int i = start_index; i < end_index; i++) {
                     // If lock.version > rv OR locked by another tx ==> abort
                     versioned_lock_t* lock_to_validate = (region->locks)[i];
                     if (get_versioned_lock_version(lock_to_validate) > transaction->rv || (get_versioned_lock_tx_id(lock_to_validate) != transaction->tx_id && get_versioned_lock_tx_id(lock_to_validate) != 0)) {
@@ -292,7 +292,7 @@ bool tm_read_post_validation(region_t* region, transaction_t* transaction, const
     //printf("start_index: %d\n", start_index);
     //printf("end_index: %d\n", end_index);
 
-    for (int i = start_index; i <= end_index; i++) {
+    for (int i = start_index; i < end_index; i++) {
         versioned_lock_t* lock_to_validate = (region->locks)[i];
         //printf("POST VALIDATION\n");
         //printf("lock_version? %d\n", get_versioned_lock_version(lock_to_validate));

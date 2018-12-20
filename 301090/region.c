@@ -15,10 +15,10 @@ int get_locks_start_index(region_t* region, const void* address) {
 }
 
 int get_locks_end_index(region_t* region, const void* address, size_t size) {
-    //return region->size / region->align - 1;
+    //return region->size / region->align;
     void* start = region->start;
     size_t align = region->align;
     ptrdiff_t ptrdiff = address + size - start;
 
-    return ptrdiff / align - 1;
+    return ptrdiff / align;
 }

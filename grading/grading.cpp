@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
                 res = 16;
             return static_cast<size_t>(res);
         }();
-        auto const nbtxperwrk    = 4000ul / nbworkers;
+        auto const nbtxperwrk    = 400000ul / nbworkers;
         auto const nbaccounts    = 32 * nbworkers;
         auto const expnbaccounts = 1024 * nbworkers;
         auto const init_balance  = 100ul;
@@ -279,7 +279,7 @@ int main(int argc, char** argv) {
         auto const nbrepeats     = 7;
         auto const seed          = static_cast<Seed>(::std::stoul(argv[1]));
         auto const clk_res       = Chrono::get_resolution();
-        auto const slow_factor   = 16ul;
+        auto const slow_factor   = 100ul;
         // Print run parameters
         ::std::cout << "⎧ #worker threads:     " << nbworkers << ::std::endl;
         ::std::cout << "⎪ #TX per worker:      " << nbtxperwrk << ::std::endl;
@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
                 } catch (Exception::BoundedOverrun const& err) { // Special case: cannot unload library with running threads, so print error and quick-exit
                     ::std::cerr << "⎪ *** EXCEPTION - main thread ***" << ::std::endl;
                     ::std::cerr << "⎩ " << err.what() << ::std::endl;
-                    ::std::quick_exit(2);
+                    ::std::abort();
                 }
             } catch (::std::exception const& err) {
                 ::std::cerr << "⎪ *** EXCEPTION - main thread ***" << ::std::endl;
